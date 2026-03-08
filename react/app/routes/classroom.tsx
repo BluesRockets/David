@@ -5,10 +5,16 @@ import type { Route } from "./+types/classroom";
 
 type UIState = "connecting" | "listening" | "speaking" | "waitingAnswer" | "recording" | "lessonComplete";
 
+// 显示队列的事件类型
+type DisplayItem =
+  | { type: "new_bubble" }                          // 创建新的 AI 气泡
+  | { type: "sentence"; text: string }              // 逐字打出一句话
+  | { type: "state_change"; state: UIState };        // 切换 UI 状态
+
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "AI Smart Classroom" },
-    { name: "description", content: "AI Classroom Session" },
+    { title: "AI 智慧课堂" },
+    { name: "description", content: "AI 课堂" },
   ];
 }
 
@@ -24,15 +30,28 @@ export default function Classroom() {
   const [textInput, setTextInput] = useState("");
   const [isRecording, setIsRecording] = useState(false);
 
-  const audioQueueRef = useRef<ArrayBuffer[]>([]);
-  const isPlayingRef = useRef(false);
   const audioContextRef = useRef<AudioContext | null>(null);
-  const currentSourceRef = useRef<AudioBufferSourceNode | null>(null);
+  const nextPlayTimeRef = useRef(0);
+  const activeSourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const chatEndRef = useRef<HTMLDivElement>(null);
   const hasStartedRef = useRef(false);
+  const uiStateRef = useRef<UIState>(uiState);
+  const pendingUIStateRef = useRef<UIState | null>(null);
+
+  // 跟踪未完成的音频解码数量，防止 sentence_audio_done 在解码前就触发
+  const pendingDecodeCountRef = useRef(0);
+  const pendingDecodeResolversRef = useRef<(() => void)[]>([]);
+
+  // 统一显示队列
+  const displayQueueRef = useRef<DisplayItem[]>([]);
+  const isProcessingRef = useRef(false);       // 是否正在处理一个 item
+  const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const audioReadyRef = useRef(true);           // 当前句音频是否已播完
+
+  useEffect(() => { uiStateRef.current = uiState; }, [uiState]);
 
   // Parse course from session
   const courseData = (() => {
@@ -51,10 +70,11 @@ export default function Classroom() {
   }, [navigate]);
 
   // WebSocket
-  const { sendMessage, lastMessage, readyState } = useWebSocket(socketUrl, {
+  const { sendMessage, readyState } = useWebSocket(socketUrl, {
     shouldReconnect: () => true,
     reconnectAttempts: 10,
     reconnectInterval: 3000,
+    onMessage: (event) => handleWsMessage(event.data),
   });
 
   // Start lesson on connect
@@ -68,67 +88,189 @@ export default function Classroom() {
     }
   }, [readyState, sendMessage, courseData]);
 
-  // Audio context
+  // Ensure AudioContext is created (must be after user gesture)
   const getAudioContext = useCallback(() => {
-    if (!audioContextRef.current) {
+    if (!audioContextRef.current || audioContextRef.current.state === "closed") {
       audioContextRef.current = new AudioContext();
+      nextPlayTimeRef.current = 0;
+    }
+    if (audioContextRef.current.state === "suspended") {
+      audioContextRef.current.resume();
     }
     return audioContextRef.current;
   }, []);
 
-  // Play next audio chunk from queue
-  const playNextChunk = useCallback(async () => {
-    if (audioQueueRef.current.length === 0) {
-      isPlayingRef.current = false;
-      return;
-    }
-    isPlayingRef.current = true;
-    const chunk = audioQueueRef.current.shift()!;
-    try {
-      const ctx = getAudioContext();
-      const audioBuffer = await ctx.decodeAudioData(chunk.slice(0));
-      const source = ctx.createBufferSource();
-      source.buffer = audioBuffer;
-      source.connect(ctx.destination);
-      currentSourceRef.current = source;
-      source.onended = () => {
-        currentSourceRef.current = null;
-        playNextChunk();
-      };
-      source.start();
-    } catch {
-      // If decode fails (partial chunk), skip and continue
-      playNextChunk();
-    }
+  // Schedule a decoded audio buffer for seamless playback
+  const scheduleAudioBuffer = useCallback((audioBuffer: AudioBuffer) => {
+    const ctx = getAudioContext();
+    const source = ctx.createBufferSource();
+    source.buffer = audioBuffer;
+    source.connect(ctx.destination);
+
+    const now = ctx.currentTime;
+    const startAt = Math.max(nextPlayTimeRef.current, now);
+    source.start(startAt);
+    nextPlayTimeRef.current = startAt + audioBuffer.duration;
+
+    activeSourcesRef.current.add(source);
+    source.onended = () => {
+      activeSourcesRef.current.delete(source);
+      // 检查是否所有排队音频都已播完，若有 pending 状态则结算
+      const c = audioContextRef.current;
+      if (pendingUIStateRef.current && c && c.currentTime >= nextPlayTimeRef.current - 0.1) {
+        setUIState(pendingUIStateRef.current);
+        pendingUIStateRef.current = null;
+      }
+    };
   }, [getAudioContext]);
 
-  // Enqueue audio
-  const enqueueAudio = useCallback((data: ArrayBuffer) => {
-    audioQueueRef.current.push(data);
-    if (!isPlayingRef.current) {
-      playNextChunk();
+  // Enqueue a binary audio frame: decode then schedule
+  const enqueueAudio = useCallback(async (data: ArrayBuffer) => {
+    pendingDecodeCountRef.current++;
+    const ctx = getAudioContext();
+    // Ensure context is running before scheduling (critical for first audio)
+    if (ctx.state === "suspended") {
+      await ctx.resume();
     }
-  }, [playNextChunk]);
+    try {
+      const decoded = await ctx.decodeAudioData(data.slice(0));
+      scheduleAudioBuffer(decoded);
+    } catch (err) {
+      console.warn("decodeAudioData failed:", err);
+    } finally {
+      pendingDecodeCountRef.current--;
+      if (pendingDecodeCountRef.current === 0) {
+        for (const resolve of pendingDecodeResolversRef.current) resolve();
+        pendingDecodeResolversRef.current = [];
+      }
+    }
+  }, [getAudioContext, scheduleAudioBuffer]);
 
-  // Stop audio
-  const stopAudio = useCallback(() => {
-    audioQueueRef.current = [];
-    if (currentSourceRef.current) {
-      try { currentSourceRef.current.stop(); } catch {}
-      currentSourceRef.current = null;
-    }
-    isPlayingRef.current = false;
+  // 等待所有未完成的音频解码
+  const waitForPendingDecodes = useCallback(() => {
+    if (pendingDecodeCountRef.current === 0) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      pendingDecodeResolversRef.current.push(resolve);
+    });
   }, []);
 
+  // Stop all audio immediately (keep AudioContext alive to avoid resume race)
+  const stopAudio = useCallback(() => {
+    for (const source of activeSourcesRef.current) {
+      try { source.stop(); } catch { /* already stopped */ }
+    }
+    activeSourcesRef.current.clear();
+    pendingUIStateRef.current = null;
+    pendingDecodeCountRef.current = 0;
+    pendingDecodeResolversRef.current = [];
+    // Reset next play time to "now" so the next audio starts immediately
+    if (audioContextRef.current && audioContextRef.current.state !== "closed") {
+      nextPlayTimeRef.current = audioContextRef.current.currentTime;
+    } else {
+      nextPlayTimeRef.current = 0;
+    }
+  }, []);
+
+  // ================================================================
+  // 统一显示队列：消费者
+  // ================================================================
+
+  const TYPING_SPEED = 80;
+
+  const processNext = useCallback(() => {
+    if (isProcessingRef.current) return;
+    if (displayQueueRef.current.length === 0) return;
+
+    const item = displayQueueRef.current[0];
+
+    if (item.type === "new_bubble") {
+      // 立即执行，不阻塞
+      displayQueueRef.current.shift();
+      setSubtitle("");
+      setChatHistory((prev) => [...prev, { role: "ai", text: "" }]);
+      // 继续处理下一个
+      processNext();
+
+    } else if (item.type === "state_change") {
+      // 状态切换也立即执行
+      displayQueueRef.current.shift();
+      // 延迟到音频播完再切
+      const ctx = audioContextRef.current;
+      if (ctx && nextPlayTimeRef.current > ctx.currentTime) {
+        pendingUIStateRef.current = item.state;
+      } else {
+        setUIState(item.state);
+      }
+      processNext();
+
+    } else if (item.type === "sentence") {
+      // 需要等上一句音频播完才开始打字
+      if (!audioReadyRef.current) return;
+
+      isProcessingRef.current = true;
+      audioReadyRef.current = false;
+      displayQueueRef.current.shift();
+
+      const text = item.text;
+      let i = 0;
+
+      const typeChar = () => {
+        if (i < text.length) {
+          const char = text[i];
+          i++;
+          setSubtitle((prev) => prev + char);
+          setChatHistory((prev) => {
+            const updated = [...prev];
+            const last = updated[updated.length - 1];
+            if (last && last.role === "ai") {
+              updated[updated.length - 1] = { ...last, text: last.text + char };
+            }
+            return updated;
+          });
+          typingTimerRef.current = setTimeout(typeChar, TYPING_SPEED);
+        } else {
+          // 本句打字完成
+          typingTimerRef.current = null;
+          isProcessingRef.current = false;
+          // 尝试处理下一个（如果音频也播完了）
+          processNext();
+        }
+      };
+      typeChar();
+    }
+  }, []);
+
+  // 当一句音频播放完毕时调用
+  const onSentenceAudioDone = useCallback(() => {
+    audioReadyRef.current = true;
+    processNext();
+  }, [processNext]);
+
+  // 向队列追加事件并尝试启动消费
+  const enqueueDisplay = useCallback((item: DisplayItem) => {
+    displayQueueRef.current.push(item);
+    processNext();
+  }, [processNext]);
+
+  // 清空显示队列（用于打断 barge-in）
+  const clearDisplayQueue = useCallback(() => {
+    displayQueueRef.current = [];
+    isProcessingRef.current = false;
+    audioReadyRef.current = true;
+    if (typingTimerRef.current) {
+      clearTimeout(typingTimerRef.current);
+      typingTimerRef.current = null;
+    }
+  }, []);
+
+  // ================================================================
   // Handle WebSocket messages
-  useEffect(() => {
-    if (!lastMessage) return;
+  // ================================================================
 
-    const { data } = lastMessage;
-
-    // Binary frame → audio
+  const handleWsMessage = useCallback((data: any) => {
+    // Binary frame -> audio
     if (data instanceof Blob) {
-      data.arrayBuffer().then(enqueueAudio);
+      data.arrayBuffer().then((buf) => enqueueAudio(buf));
       setUIState("speaking");
       return;
     }
@@ -138,38 +280,71 @@ export default function Classroom() {
       return;
     }
 
-    // Text frame → JSON
+    // Text frame -> JSON
     try {
       const msg = JSON.parse(data);
 
-      if (msg.type === "transcript") {
-        setSubtitle(msg.content);
-        setChatHistory((prev) => [...prev, { role: "ai", text: msg.content }]);
+      if (msg.type === "transcript_start") {
+        console.log("Transcript start:");
+        // 入队一个"新气泡"事件，由消费者在合适时机创建
+        enqueueDisplay({ type: "new_bubble" });
+        setUIState("speaking");
 
-        if (msg.mode === "evaluate") {
-          setUIState("waitingAnswer");
-        } else if (msg.mode === "end") {
-          setUIState("lessonComplete");
-        } else {
-          setUIState("speaking");
+      } else if (msg.type === "sentence_start") {
+        console.log("Sentence start:", msg.text);
+        // 入队句子，由消费者按节奏逐字打出
+        enqueueDisplay({ type: "sentence", text: msg.text });
+        setUIState("speaking");
+
+      } else if (msg.type === "sentence_audio_done") {
+        console.log("Sentence audio done:");
+        // 等待所有音频解码完成后，再计算实际播完的时间
+        waitForPendingDecodes().then(() => {
+          const ctx = audioContextRef.current;
+          if (ctx && nextPlayTimeRef.current > ctx.currentTime) {
+            const remaining = (nextPlayTimeRef.current - ctx.currentTime) * 1000;
+            setTimeout(onSentenceAudioDone, remaining);
+          } else {
+            onSentenceAudioDone();
+          }
+        });
+
+      } else if (msg.type === "transcript") {
+        console.log("Transcript:", msg.mode);
+        // 状态切换也入队，等前面的句子都播完再执行
+        const targetState: UIState | null =
+          msg.mode === "evaluate" ? "waitingAnswer" :
+          msg.mode === "end" ? "lessonComplete" : null;
+        if (targetState) {
+          enqueueDisplay({ type: "state_change", state: targetState });
         }
+
       } else if (msg.type === "tts_done") {
-        if (uiState === "waitingAnswer") {
-          // stay in waitingAnswer
+        console.log("TTS done:");
+        // 整轮 TTS 全部完成
+        const ctx = audioContextRef.current;
+        if (ctx && nextPlayTimeRef.current > ctx.currentTime) {
+          const remaining = (nextPlayTimeRef.current - ctx.currentTime) * 1000;
+          setTimeout(() => {
+            setUIState((prev) => (prev === "speaking" ? "listening" : prev));
+          }, remaining);
         } else {
-          setUIState("listening");
+          setUIState((prev) => (prev === "speaking" ? "listening" : prev));
         }
+
       } else if (msg.type === "tts_stop") {
+        console.log("TTS stop:");
+        clearDisplayQueue();
         stopAudio();
+
       } else if (msg.type === "lesson_complete") {
         setUIState("lessonComplete");
       }
     } catch {
-      // Non-JSON text = error message
       setSubtitle(data);
       setChatHistory((prev) => [...prev, { role: "ai", text: data }]);
     }
-  }, [lastMessage]);
+  }, [enqueueAudio, enqueueDisplay, onSentenceAudioDone, clearDisplayQueue, stopAudio, waitForPendingDecodes]);
 
   // Auto scroll chat
   useEffect(() => {
@@ -184,6 +359,7 @@ export default function Classroom() {
     if (uiState === "waitingAnswer") {
       sendMessage(JSON.stringify({ type: "answer", text }));
     } else {
+      clearDisplayQueue();
       stopAudio();
       sendMessage(JSON.stringify({ type: "interrupt", text }));
     }
@@ -210,13 +386,15 @@ export default function Classroom() {
       };
 
       recorder.onstop = () => {
+        const wasWaitingAnswer = uiStateRef.current === "waitingAnswer";
         const blob = new Blob(audioChunksRef.current, { type: mimeType });
         const reader = new FileReader();
         reader.onload = () => {
           const base64 = (reader.result as string).split(",")[1];
-          if (uiState === "waitingAnswer") {
+          if (wasWaitingAnswer) {
             sendMessage(JSON.stringify({ type: "answer", audio: base64 }));
           } else {
+            clearDisplayQueue();
             stopAudio();
             sendMessage(JSON.stringify({ type: "interrupt", audio: base64 }));
           }
@@ -224,7 +402,7 @@ export default function Classroom() {
         reader.readAsDataURL(blob);
         mediaStreamRef.current?.getTracks().forEach((t) => t.stop());
         mediaStreamRef.current = null;
-        setChatHistory((prev) => [...prev, { role: "user", text: "[Voice message]" }]);
+        setChatHistory((prev) => [...prev, { role: "user", text: "[语音消息]" }]);
         setUIState("listening");
       };
 
@@ -233,7 +411,7 @@ export default function Classroom() {
     } catch (err) {
       console.error("Mic error:", err);
     }
-  }, [isRecording, uiState, sendMessage, stopAudio]);
+  }, [isRecording, sendMessage, stopAudio]);
 
   const stopRecording = useCallback(() => {
     if (!isRecording) return;
@@ -248,12 +426,12 @@ export default function Classroom() {
 
   // Status display
   const statusConfig: Record<UIState, { label: string; color: string; pulse: boolean }> = {
-    connecting: { label: "Connecting...", color: "bg-yellow-400", pulse: true },
-    listening: { label: "Listening", color: "bg-emerald-400", pulse: false },
-    speaking: { label: "AI Speaking", color: "bg-indigo-500", pulse: true },
-    waitingAnswer: { label: "Your Turn", color: "bg-amber-400", pulse: true },
-    recording: { label: "Recording", color: "bg-red-500", pulse: true },
-    lessonComplete: { label: "Lesson Complete", color: "bg-purple-500", pulse: false },
+    connecting: { label: "连接中...", color: "bg-yellow-400", pulse: true },
+    listening: { label: "聆听中", color: "bg-emerald-400", pulse: false },
+    speaking: { label: "老师讲解中", color: "bg-indigo-500", pulse: true },
+    waitingAnswer: { label: "轮到你啦", color: "bg-amber-400", pulse: true },
+    recording: { label: "录音中", color: "bg-red-500", pulse: true },
+    lessonComplete: { label: "课程结束", color: "bg-purple-500", pulse: false },
   };
 
   const status = statusConfig[isRecording ? "recording" : uiState];
@@ -270,8 +448,8 @@ export default function Classroom() {
               </svg>
             </button>
             <div>
-              <h1 className="text-sm font-semibold text-gray-900">{courseData?.title || "Classroom"}</h1>
-              <p className="text-xs text-gray-400">{courseData?.plan?.length || 0} topics</p>
+              <h1 className="text-sm font-semibold text-gray-900">{courseData?.title || "课堂"}</h1>
+              <p className="text-xs text-gray-400">{courseData?.plan?.length || 0} 个知识点</p>
             </div>
           </div>
 
@@ -296,8 +474,8 @@ export default function Classroom() {
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
                 </svg>
               </div>
-              <h2 className="text-lg font-semibold text-gray-900 mb-1">Lesson Starting...</h2>
-              <p className="text-sm text-gray-400">The AI teacher is preparing your lesson</p>
+              <h2 className="text-lg font-semibold text-gray-900 mb-1">课程即将开始...</h2>
+              <p className="text-sm text-gray-400">AI 老师正在准备课程内容</p>
             </div>
           )}
 
@@ -313,7 +491,13 @@ export default function Classroom() {
                     : "bg-white border border-gray-100 text-gray-800 shadow-sm rounded-bl-md"
                 }`}
               >
-                {msg.text}
+                {msg.role === "ai" && !msg.text ? (
+                  <div className="flex items-center gap-1 py-1 px-1">
+                    <span className="w-2 h-2 rounded-full bg-gray-400 animate-[typing-dot_1.4s_ease-in-out_infinite]" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 animate-[typing-dot_1.4s_ease-in-out_0.2s_infinite]" />
+                    <span className="w-2 h-2 rounded-full bg-gray-400 animate-[typing-dot_1.4s_ease-in-out_0.4s_infinite]" />
+                  </div>
+                ) : msg.text}
               </div>
             </div>
           ))}
@@ -321,23 +505,16 @@ export default function Classroom() {
         </div>
       </div>
 
-      {/* Subtitle bar */}
-      {subtitle && uiState === "speaking" && (
-        <div className="shrink-0 bg-indigo-50 border-t border-indigo-100 px-4 py-3">
-          <p className="max-w-3xl mx-auto text-sm text-indigo-700 text-center">{subtitle}</p>
-        </div>
-      )}
-
       {/* Lesson Complete */}
       {uiState === "lessonComplete" && (
         <div className="shrink-0 bg-gradient-to-r from-purple-50 to-indigo-50 border-t border-purple-100 px-4 py-6">
           <div className="max-w-3xl mx-auto text-center">
-            <p className="text-lg font-semibold text-purple-700 mb-3">Lesson Complete!</p>
+            <p className="text-lg font-semibold text-purple-700 mb-3">课程结束！</p>
             <button
               onClick={handleBack}
               className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-600 text-white text-sm font-semibold shadow-lg shadow-indigo-200 hover:shadow-xl hover:-translate-y-0.5 transition-all cursor-pointer"
             >
-              Back to Courses
+              返回课程列表
             </button>
           </div>
         </div>
@@ -361,7 +538,7 @@ export default function Classroom() {
                     ? "bg-gradient-to-r from-amber-400 to-orange-500 text-white shadow-lg shadow-amber-200 animate-pulse"
                     : "bg-gray-100 text-gray-500 hover:bg-gray-200"
               } disabled:opacity-40 disabled:cursor-not-allowed disabled:animate-none`}
-              title={isRecording ? "Release to send" : "Hold to record"}
+              title={isRecording ? "松开发送" : "按住录音"}
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 18.75a6 6 0 0 0 6-6v-1.5m-6 7.5a6 6 0 0 1-6-6v-1.5m6 7.5v3.75m-3.75 0h7.5M12 15.75a3 3 0 0 1-3-3V4.5a3 3 0 1 1 6 0v8.25a3 3 0 0 1-3 3Z" />
@@ -375,7 +552,7 @@ export default function Classroom() {
                 value={textInput}
                 onChange={(e) => setTextInput(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleSendText()}
-                placeholder={uiState === "waitingAnswer" ? "Type your answer..." : "Type to ask a question..."}
+                placeholder={uiState === "waitingAnswer" ? "输入你的答案..." : "输入问题..."}
                 className="flex-1 bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none"
                 disabled={readyState !== ReadyState.OPEN}
               />
@@ -393,7 +570,7 @@ export default function Classroom() {
 
           {uiState === "waitingAnswer" && (
             <p className="max-w-3xl mx-auto text-center text-xs text-amber-600 mt-2 animate-pulse">
-              The teacher is waiting for your answer - speak or type!
+              老师在等你的回答哦——说出来或者打字都可以！
             </p>
           )}
         </div>

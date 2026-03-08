@@ -30,7 +30,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 
 
-llm = ChatOpenAI(model="gpt-5", temperature=0.7)
+llm = ChatOpenAI(model="gpt-5-mini", temperature=1)
 
 # ================================================================
 # State 定义
@@ -53,7 +53,9 @@ class TeachingState(TypedDict):
 SYSTEM_PROMPT = (
     "你是一位面向6-12岁儿童的AI教学老师，名叫'小智'。\n"
     "语气要亲切、有趣、富有鼓励性。用简单易懂的语言讲解知识。\n"
-    "每次只讲一个小知识点，控制在3-4句话以内。"
+    "每次只讲一个小知识点，控制在3-4句话以内。\n"
+    "重要：只在课程最开始时做一次自我介绍，之后不要再重复介绍自己。\n"
+    "如果对话历史中你已经说过话了，直接继续讲课即可。\n"
 )
 
 
@@ -84,16 +86,22 @@ async def teach_node(state: TeachingState) -> dict:
         }
 
     topic = plan[idx]
+    if idx == 0:
+        prompt = f"请用3-4句话，生动有趣地向小朋友讲解以下知识点：{topic}"
+    else:
+        prompt = f"继续讲解下一个知识点：{topic}。直接讲内容，不要重复自我介绍。"
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
         *state.get("messages", []),
-        HumanMessage(content=f"请用3-4句话，生动有趣地向小朋友讲解以下知识点：{topic}"),
+        HumanMessage(content=prompt),
     ]
-    result = await llm.ainvoke(messages)
+    full_content = ""
+    async for chunk in llm.astream(messages):
+        full_content += chunk.content
 
     return {
-        "messages": [AIMessage(content=result.content)],
-        "response_text": result.content,
+        "messages": [AIMessage(content=full_content)],
+        "response_text": full_content,
         "mode": "ask",          # ➡️ 下一步：提问
         "await_input": False,   # 讲完自动进入提问环节
     }
@@ -113,11 +121,13 @@ async def ask_node(state: TeachingState) -> dict:
             f"检查小朋友是否理解了。问题要简短，适合口头回答。"
         )),
     ]
-    result = await llm.ainvoke(messages)
+    full_content = ""
+    async for chunk in llm.astream(messages):
+        full_content += chunk.content
 
     return {
-        "messages": [AIMessage(content=result.content)],
-        "response_text": result.content,
+        "messages": [AIMessage(content=full_content)],
+        "response_text": full_content,
         "mode": "evaluate",     # ➡️ 下一步：评估学生回答
         "await_input": True,    # ⏸ 等待学生回答
     }
@@ -130,18 +140,24 @@ async def evaluate_node(state: TeachingState) -> dict:
             SYSTEM_PROMPT + "\n\n"
             "请评价小朋友的回答：如果答对了就热情夸奖；"
             "如果答错了就温柔地纠正并给出正确答案。"
-            "最后说一句简短的过渡语，引出下一个知识点。"
+            "你可以选择追问一个相关的小问题来加深理解，"
+            "也可以用一句过渡语引出下一个知识点。"
         )),
         *state.get("messages", []),
     ]
-    result = await llm.ainvoke(messages)
+    full_content = ""
+    async for chunk in llm.astream(messages):
+        full_content += chunk.content
+
+    # 动态判断：回复末尾有问号 → 追问了新问题，需要等学生回答
+    has_question = full_content.rstrip().endswith(("？", "?"))
 
     return {
-        "messages": [AIMessage(content=result.content)],
-        "response_text": result.content,
-        "current_segment": state.get("current_segment", 0) + 1,  # ➡️ 推进
-        "mode": "teach",        # ➡️ 继续教下一段
-        "await_input": False,
+        "messages": [AIMessage(content=full_content)],
+        "response_text": full_content,
+        "current_segment": state.get("current_segment", 0) + (0 if has_question else 1),
+        "mode": "evaluate" if has_question else "teach",
+        "await_input": has_question,
     }
 
 
@@ -168,11 +184,13 @@ async def qa_node(state: TeachingState) -> dict:
         )),
         *state.get("messages", []),
     ]
-    result = await llm.ainvoke(messages)
+    full_content = ""
+    async for chunk in llm.astream(messages):
+        full_content += chunk.content
 
     return {
-        "messages": [AIMessage(content=result.content)],
-        "response_text": result.content,
+        "messages": [AIMessage(content=full_content)],
+        "response_text": full_content,
         "mode": resume,         # ✅ 拉回到被打断前的节点
         "resume_node": None,    # 清除断点标记
         "await_input": False,   # QA 结束后自动回到主线

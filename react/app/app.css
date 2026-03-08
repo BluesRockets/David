@@ -35,6 +35,17 @@ body {
   }
 }
 
+@keyframes typing-dot {
+  0%, 60%, 100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-4px);
+  }
+}
+
 @keyframes float {
   0%, 100% {
     transform: translate(0, 0);

@@ -7,8 +7,8 @@ const VALID_PASSWORD = "testtest";
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "AI Smart Classroom - Login" },
-    { name: "description", content: "AI Smart Classroom Login" },
+    { title: "AI 智慧课堂 - 登录" },
+    { name: "description", content: "AI 智慧课堂登录" },
   ];
 }
 
@@ -30,7 +30,7 @@ export default function Login() {
         sessionStorage.setItem("username", username);
         navigate("/courses");
       } else {
-        setError("Username or password incorrect");
+        setError("用户名或密码错误");
         setIsLoading(false);
       }
     }, 600);
@@ -53,32 +53,32 @@ export default function Login() {
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
             </svg>
           </div>
-          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">AI Smart Classroom</h1>
-          <p className="mt-2 text-gray-500 text-sm">Interactive voice-powered learning experience</p>
+          <h1 className="text-3xl font-bold text-gray-900 tracking-tight">AI 智慧课堂</h1>
+          <p className="mt-2 text-gray-500 text-sm">互动语音驱动的学习体验</p>
         </div>
 
         {/* Login Card */}
         <div className="bg-white/80 backdrop-blur-xl rounded-3xl shadow-xl shadow-gray-200/50 border border-gray-100 p-8 animate-[welcome-rise_700ms_ease_200ms_forwards] opacity-0">
           <form onSubmit={handleLogin} className="space-y-5">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Username</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">用户名</label>
               <input
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50/50 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
-                placeholder="Enter username"
+                placeholder="请输入用户名"
                 required
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1.5">Password</label>
+              <label className="block text-sm font-medium text-gray-700 mb-1.5">密码</label>
               <input
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 className="w-full px-4 py-3 rounded-xl border border-gray-200 bg-gray-50/50 text-gray-900 text-sm placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-400 transition-all"
-                placeholder="Enter password"
+                placeholder="请输入密码"
                 required
               />
             </div>
@@ -103,17 +103,17 @@ export default function Login() {
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
-                  Logging in...
+                  登录中...
                 </span>
               ) : (
-                "Sign In"
+                "登录"
               )}
             </button>
           </form>
 
           <div className="mt-6 pt-5 border-t border-gray-100 text-center">
             <p className="text-xs text-gray-400">
-              Demo account: <span className="font-mono text-gray-500">student</span> / <span className="font-mono text-gray-500">learn2024</span>
+              演示账号：<span className="font-mono text-gray-500">student</span> / <span className="font-mono text-gray-500">learn2024</span>
             </p>
           </div>
         </div>

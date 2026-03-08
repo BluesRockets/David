@@ -1,0 +1,25 @@
+version: '3.8'
+
+services:
+  backend:
+    build: 
+      context: ./agent
+      dockerfile: Dockerfile
+    container_name: david-backend
+    # 如果后端不需要直接对外暴露（只由前端 Nginx 转发），可以注释掉这里的 ports
+    # ports:
+    #   - "8000:8000"
+    env_file:
+      - ./agent/.env
+    restart: always
+
+  frontend:
+    build: 
+      context: ./react
+      dockerfile: Dockerfile
+    container_name: david-frontend
+    ports:
+      - "2053:80" # 关键修改：宿主机 2053 映射到容器内的 80 端口
+    depends_on:
+      - backend
+    restart: always

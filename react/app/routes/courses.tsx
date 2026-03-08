@@ -17,76 +17,76 @@ interface Course {
 const COURSES: Course[] = [
   {
     id: "solar-system",
-    title: "Explore the Solar System",
-    description: "Embark on an interstellar journey to discover planets, moons, and the mysteries of our cosmic neighborhood.",
+    title: "探索太阳系",
+    description: "踏上星际之旅，探索行星、卫星和我们宇宙邻居的奥秘。",
     icon: "M12 3v2.25m6.364.386-1.591 1.591M21 12h-2.25m-.386 6.364-1.591-1.591M12 18.75V21m-4.773-4.227-1.591 1.591M5.25 12H3m4.227-4.773L5.636 5.636M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z",
     color: "text-amber-600",
     gradient: "from-amber-400 to-orange-500",
-    plan: ["What are the eight planets", "Inner planets vs outer planets", "Why does the Earth have seasons", "The mystery of Saturn's rings"],
-    difficulty: "Beginner",
-    duration: "15 min",
+    plan: ["太阳系有哪八大行星", "内行星和外行星的区别", "地球为什么有四季", "土星光环的奥秘"],
+    difficulty: "入门",
+    duration: "15 分钟",
   },
   {
     id: "photosynthesis",
-    title: "Magic of Photosynthesis",
-    description: "Uncover how plants turn sunlight into food and why they are essential for life on Earth.",
+    title: "光合作用的奥秘",
+    description: "揭秘植物如何把阳光变成食物，以及它们为何对地球生命至关重要。",
     icon: "M12 3v2.25m0 13.5V21m-7.5-9H3m2.636-5.364L4.045 5.045m12.728 0-1.591 1.591M21 12h-2.25M15.75 12a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0Z",
     color: "text-emerald-600",
     gradient: "from-emerald-400 to-teal-500",
-    plan: ["What is photosynthesis", "What do plants need to grow", "Why are leaves green", "Oxygen and our atmosphere"],
-    difficulty: "Beginner",
-    duration: "12 min",
+    plan: ["什么是光合作用", "植物生长需要什么", "树叶为什么是绿色的", "氧气与大气层"],
+    difficulty: "入门",
+    duration: "12 分钟",
   },
   {
     id: "water-cycle",
-    title: "The Water Cycle",
-    description: "Follow a water droplet on its incredible journey from ocean to cloud to rain and back again.",
+    title: "水的循环之旅",
+    description: "跟随一滴小水滴，经历从海洋到云朵再到雨雪的奇妙旅程。",
     icon: "M12 21a9.004 9.004 0 0 0 8.716-6.747M12 21a9.004 9.004 0 0 1-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 0 1 7.843 4.582M12 3a8.997 8.997 0 0 0-7.843 4.582m15.686 0A11.953 11.953 0 0 1 12 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0 1 21 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0 1 12 16.5a17.92 17.92 0 0 1-8.716-2.247m0 0A8.966 8.966 0 0 1 3 12c0-1.264.26-2.467.732-3.558",
     color: "text-sky-600",
     gradient: "from-sky-400 to-blue-500",
-    plan: ["Evaporation: water becomes vapor", "Condensation: clouds are born", "Precipitation: rain and snow", "How water returns to the ocean"],
-    difficulty: "Beginner",
-    duration: "10 min",
+    plan: ["蒸发：水变成水蒸气", "凝结：云朵的诞生", "降水：雨和雪", "水如何回到海洋"],
+    difficulty: "入门",
+    duration: "10 分钟",
   },
   {
     id: "human-body",
-    title: "Human Body Systems",
-    description: "Explore the amazing machinery inside you - from your beating heart to your thinking brain.",
+    title: "人体的奥秘",
+    description: "探索你身体里的神奇机器——从跳动的心脏到思考的大脑。",
     icon: "M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12Z",
     color: "text-rose-600",
     gradient: "from-rose-400 to-pink-500",
-    plan: ["The circulatory system", "How lungs work", "The digestive journey", "Your amazing brain"],
-    difficulty: "Intermediate",
-    duration: "18 min",
+    plan: ["血液循环系统", "肺是怎么工作的", "食物的消化之旅", "神奇的大脑"],
+    difficulty: "进阶",
+    duration: "18 分钟",
   },
   {
     id: "dinosaurs",
-    title: "Age of Dinosaurs",
-    description: "Travel back in time to meet the most incredible creatures that ever walked the Earth.",
+    title: "恐龙时代",
+    description: "穿越时空，去认识曾经在地球上行走的最不可思议的生物。",
     icon: "M12 6.042A8.967 8.967 0 0 0 6 3.75c-1.052 0-2.062.18-3 .512v14.25A8.987 8.987 0 0 1 6 18c2.305 0 4.408.867 6 2.292m0-14.25a8.966 8.966 0 0 1 6-2.292c1.052 0 2.062.18 3 .512v14.25A8.987 8.987 0 0 0 18 18a8.967 8.967 0 0 0-6 2.292m0-14.25v14.25",
     color: "text-violet-600",
     gradient: "from-violet-400 to-purple-500",
-    plan: ["When did dinosaurs live", "Herbivores and carnivores", "The mighty T-Rex", "Why did dinosaurs go extinct"],
-    difficulty: "Beginner",
-    duration: "14 min",
+    plan: ["恐龙生活在什么时候", "草食恐龙和肉食恐龙", "强大的霸王龙", "恐龙为什么灭绝了"],
+    difficulty: "入门",
+    duration: "14 分钟",
   },
   {
     id: "electricity",
-    title: "Understanding Electricity",
-    description: "Discover the invisible force that powers our world, from lightning bolts to light bulbs.",
+    title: "认识电的世界",
+    description: "探索驱动世界的无形力量，从闪电到灯泡的奇妙之旅。",
     icon: "m3.75 13.5 10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75Z",
     color: "text-yellow-600",
     gradient: "from-yellow-400 to-amber-500",
-    plan: ["What is electricity", "Conductors and insulators", "How circuits work", "Static electricity fun"],
-    difficulty: "Intermediate",
-    duration: "16 min",
+    plan: ["什么是电", "导体和绝缘体", "电路是怎么工作的", "有趣的静电现象"],
+    difficulty: "进阶",
+    duration: "16 分钟",
   },
 ];
 
 export function meta({}: Route.MetaArgs) {
   return [
-    { title: "AI Smart Classroom - Courses" },
-    { name: "description", content: "Choose your course" },
+    { title: "AI 智慧课堂 - 课程" },
+    { name: "description", content: "选择课程" },
   ];
 }
 
@@ -99,7 +99,7 @@ export default function Courses() {
     }
   }, [navigate]);
 
-  const username = sessionStorage.getItem("username") || "Student";
+  const username = sessionStorage.getItem("username") || "同学";
 
   const handleSelectCourse = (course: Course) => {
     sessionStorage.setItem("currentCourse", JSON.stringify(course));
@@ -122,7 +122,7 @@ export default function Courses() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M4.26 10.147a60.438 60.438 0 0 0-.491 6.347A48.62 48.62 0 0 1 12 20.904a48.62 48.62 0 0 1 8.232-4.41 60.46 60.46 0 0 0-.491-6.347m-15.482 0a50.636 50.636 0 0 0-2.658-.813A59.906 59.906 0 0 1 12 3.493a59.903 59.903 0 0 1 10.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.717 50.717 0 0 1 12 13.489a50.702 50.702 0 0 1 7.74-3.342M6.75 15a.75.75 0 1 0 0-1.5.75.75 0 0 0 0 1.5Zm0 0v-3.675A55.378 55.378 0 0 1 12 8.443m-7.007 11.55A5.981 5.981 0 0 0 6.75 15.75v-1.5" />
               </svg>
             </div>
-            <span className="font-semibold text-gray-900">AI Smart Classroom</span>
+            <span className="font-semibold text-gray-900">AI 智慧课堂</span>
           </div>
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
@@ -135,7 +135,7 @@ export default function Courses() {
               onClick={handleLogout}
               className="text-sm text-gray-400 hover:text-gray-600 transition-colors cursor-pointer"
             >
-              Sign Out
+              退出登录
             </button>
           </div>
         </div>
@@ -146,9 +146,9 @@ export default function Courses() {
         {/* Welcome Section */}
         <div className="mb-12 animate-[welcome-rise_700ms_ease_forwards]">
           <h1 className="text-4xl font-bold text-gray-900 tracking-tight">
-            Welcome back, <span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{username}</span>
+            欢迎回来，<span className="bg-gradient-to-r from-indigo-600 to-purple-600 bg-clip-text text-transparent">{username}</span>
           </h1>
-          <p className="mt-3 text-lg text-gray-500">Choose a course to start your AI-powered learning adventure.</p>
+          <p className="mt-3 text-lg text-gray-500">选择一门课程，开启你的 AI 学习之旅吧！</p>
         </div>
 
         {/* Course Grid */}
@@ -200,7 +200,7 @@ export default function Courses() {
                 ))}
                 {course.plan.length > 3 && (
                   <span className="inline-block px-2 py-1 rounded-lg bg-gray-50 text-xs text-gray-400 border border-gray-100">
-                    +{course.plan.length - 3} more
+                    +{course.plan.length - 3} 更多
                   </span>
                 )}
               </div>

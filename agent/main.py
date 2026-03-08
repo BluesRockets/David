@@ -38,7 +38,7 @@ load_dotenv()
 
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, AIMessageChunk
 
 from connection_manager import manager
 from agent_service import create_graph
@@ -81,49 +81,115 @@ class Session:
 # 核心协程：运行 Graph → 流式 TTS → 自动继续
 # ================================================================
 
+SENTENCE_ENDINGS = set("。！？.!?")
+
+
 async def run_and_speak(session: Session, ws: WebSocket):
     """
     作为 asyncio.Task 运行，可随时被 cancel。
 
-    流程：
-      ① ainvoke LangGraph → 得到 response_text
-      ② 把文本通过 TTS 逐块发送给前端（最可能被打断的阶段）
-      ③ 根据 await_input 决定是否自动触发下一个节点
+    使用生产者-消费者模型实现"边想边说"：
+      - 生产者：流式获取 LLM token，发送 transcript_delta，按句断开后入队
+      - 消费者：从队列取出完整句子，合成音频后立即发送给前端
     """
-    try:
-        # ──────────────── ① 运行 LangGraph ────────────────
-        result = await session.graph.ainvoke(session.state)
-        session.state = result                     # 更新 session 快照
+    tts_queue: asyncio.Queue[str | None] = asyncio.Queue()
 
-        text = result.get("response_text", "")
+    try:
+        await ws.send_json({"type": "transcript_start"})
+
+        final_state = None
+        sentence_buffer = ""
+
+        # ──────────────── 生产者：LLM 流式 → 断句入队 ────────────────
+        async def llm_producer():
+            nonlocal final_state, sentence_buffer
+
+            async for stream_type, data in session.graph.astream(
+                session.state, stream_mode=["messages", "values"]
+            ):
+                if stream_type == "messages":
+                    msg, _metadata = data
+                    if isinstance(msg, AIMessageChunk) and msg.content:
+                        sentence_buffer += msg.content
+                        while sentence_buffer:
+                            earliest = -1
+                            for ch in SENTENCE_ENDINGS:
+                                idx = sentence_buffer.find(ch)
+                                if idx != -1 and (earliest == -1 or idx < earliest):
+                                    earliest = idx
+                            if earliest == -1:
+                                break
+                            sentence = sentence_buffer[: earliest + 1].strip()
+                            sentence_buffer = sentence_buffer[earliest + 1 :]
+                            if sentence:
+                                await tts_queue.put(sentence)
+                elif stream_type == "values":
+                    final_state = data
+
+            # 刷新残余文本
+            remaining = sentence_buffer.strip()
+            if remaining:
+                await tts_queue.put(remaining)
+            sentence_buffer = ""
+
+            # 哨兵：通知消费者结束
+            await tts_queue.put(None)
+
+        # ──────────────── 消费者：逐句 TTS → 发送文本+音频 ────────────────
+        async def tts_consumer():
+            sentence_id = 0
+            while True:
+                sentence = await tts_queue.get()
+                if sentence is None:
+                    break
+                # 先告诉前端这句话的文本
+                await ws.send_json({
+                    "type": "sentence_start",
+                    "text": sentence,
+                    "id": sentence_id,
+                })
+                # 合成音频并发送
+                chunks: list[bytes] = []
+                async for chunk in stream_synthesize(sentence):
+                    chunks.append(chunk)
+                audio_data = b"".join(chunks)
+                if audio_data:
+                    await ws.send_bytes(audio_data)
+                # 通知前端这句话的音频已全部发送
+                await ws.send_json({
+                    "type": "sentence_audio_done",
+                    "id": sentence_id,
+                })
+                sentence_id += 1
+
+        # 并发运行生产者和消费者
+        await asyncio.gather(llm_producer(), tts_consumer())
+
+        if final_state is None:
+            return
+        session.state = final_state
+
+        text = final_state.get("response_text", "")
         if not text:
             return
 
-        # 通知前端文本内容（可用于字幕展示）
+        # 通知前端文本完成（含 mode 用于状态切换）
         await ws.send_json({
             "type": "transcript",
             "content": text,
-            "mode": result.get("mode", ""),
+            "mode": final_state.get("mode", ""),
         })
 
-        # ──────────────── ② 流式 TTS 推送 ────────────────
-        # stream_synthesize 是异步生成器，逐块 yield 音频 bytes
-        # 每次 await 都是一个可取消点 (cancellation point)
-        async for audio_chunk in stream_synthesize(text):
-            await ws.send_bytes(audio_chunk)
-
-        # TTS 正常播完
         await ws.send_json({"type": "tts_done"})
 
-        # ──────────────── ③ 决定是否自动继续 ────────────────
-        mode = result.get("mode", "")
+        # ──────────────── 决定是否自动继续 ────────────────
+        mode = final_state.get("mode", "")
 
         if mode == "end":
             await ws.send_json({"type": "lesson_complete"})
             return
 
-        if not result.get("await_input", False):
-            # 不需要等学生输入 → 短暂停顿后自动推进（如 teach → ask）
+        if not final_state.get("await_input", False):
             await asyncio.sleep(0.6)
             session.current_task = asyncio.create_task(
                 run_and_speak(session, ws)
@@ -131,7 +197,13 @@ async def run_and_speak(session: Session, ws: WebSocket):
         # else: await_input=True → 等前端发来 "answer" 消息
 
     except asyncio.CancelledError:
-        # ✅ 被 barge-in 打断，通知前端立刻停止音频播放
+        # 清理队列，防止消费者阻塞
+        while not tts_queue.empty():
+            try:
+                tts_queue.get_nowait()
+            except asyncio.QueueEmpty:
+                break
+        # 通知前端立刻停止音频播放
         try:
             await ws.send_json({"type": "tts_stop"})
         except Exception:
@@ -167,13 +239,10 @@ async def websocket_endpoint(websocket: WebSocket, client_id: int):
     )
 
     try:
-        if not await ensure_env(websocket, ["OPENAI_API_KEY"]):
+        if not await ensure_env(websocket, ["OPENAI_API_KEY", "MINIMAX_API_KEY"]):
             return
 
-        # 连接建立后立即开始教学
-        session.current_task = asyncio.create_task(
-            run_and_speak(session, websocket)
-        )
+        # 等待前端发送 start_lesson 再开始教学（不自动启动）
 
         # ──────────────── 主接收循环 ────────────────
         while True:
