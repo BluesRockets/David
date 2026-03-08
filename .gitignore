@@ -1,0 +1,16 @@
+.DS_Store
+.env
+node_modules/
+
+# React Router
+.react-router/
+build/
+
+venv/
+__pycache__/
+agent/.calendar_profile/
+
+.vscode/
+.claude
+.venv
+.do
