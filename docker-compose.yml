@@ -19,7 +19,13 @@ services:
       dockerfile: Dockerfile
     container_name: david-frontend
     ports:
-      - "2053:80" # 关键修改：宿主机 2053 映射到容器内的 80 端口
+      - "2053:443"  # Cloudflare HTTPS
+    # 将你的挂载配置加到这里：
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./docker/nginx/stream.d:/etc/nginx/stream.d:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
     depends_on:
       - backend
     restart: always
