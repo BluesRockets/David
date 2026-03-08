@@ -1,5 +1,5 @@
 # === 第一阶段：构建构建产物 ===
-FROM node:18-alpine AS builder
+FROM node:alpine AS builder
 
 WORKDIR /app
 
