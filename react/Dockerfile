@@ -16,7 +16,7 @@ FROM nginx:alpine
 
 # 将构建产物从 builder 阶段复制到 Nginx 的默认静态文件目录
 # 注意：Vite 默认的打包输出目录是 dist，如果是 build 请自行替换
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /app/build/client /usr/share/nginx/html
 
 # 暴露 80 端口
 EXPOSE 80
